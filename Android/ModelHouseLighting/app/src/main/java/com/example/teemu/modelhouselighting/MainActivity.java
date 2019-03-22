@@ -23,13 +23,14 @@ import java.util.UUID;
 public class MainActivity extends AppCompatActivity {
     private final int REQUEST_ENABLE_BT = 1;
     private boolean bluetoothEnabled = true;
+    private BluetoothAdapter bluetoothAdapter;
     private final String BT_DEBUG_TAG = "MODELHOUSE/BT";
     private final String ON = "n";
     private final String OFF = "f";
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private final int MESSAGE_READ = 0;
-    private final int MESSAGE_WRITE = 0;
-    private final int MESSAGE_TOAST = 0;
+    private final int MESSAGE_WRITE = 1;
+    private final int MESSAGE_TOAST = 2;
 
     private ConnectThread connectThread;
     private ConnectedThread connectedThread;
@@ -39,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         if (bluetoothAdapter == null) {
             // Device doesn't support Bluetooth
             Toast.makeText(this, "No bluetooth available", Toast.LENGTH_SHORT).show();
@@ -49,26 +50,40 @@ public class MainActivity extends AppCompatActivity {
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
         }
+    }
 
-        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+    // TODO: handle lifecycle onPause, onResume, etc... close and reopen socket?
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Log.d(BT_DEBUG_TAG, "onResume");
+        // Establish connection here
+        if (bluetoothEnabled) {
+            Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
 
-        if (pairedDevices.size() > 0) {
-            // There are paired devices. Get the name and address of each paired device.
-            for (BluetoothDevice device : pairedDevices) {
-                String deviceName = device.getName();
-                String deviceHardwareAddress = device.getAddress(); // MAC address
-                Log.d(BT_DEBUG_TAG, deviceName + " " + deviceHardwareAddress);
-                if (deviceHardwareAddress.equals("20:16:06:07:68:96")) {
-                    Log.d(BT_DEBUG_TAG, "HC-06 found");
-                    connectThread = new ConnectThread(device);
-                    connectThread.start();
-                    //connectThread.run();
+            if (pairedDevices.size() > 0) {
+                // There are paired devices. Get the name and address of each paired device.
+                for (BluetoothDevice device : pairedDevices) {
+                    String deviceName = device.getName();
+                    String deviceHardwareAddress = device.getAddress(); // MAC address
+                    Log.d(BT_DEBUG_TAG, deviceName + " " + deviceHardwareAddress);
+                    if (deviceHardwareAddress.equals("20:16:06:07:68:96")) {
+                        Log.d(BT_DEBUG_TAG, "HC-06 found");
+                        connectThread = new ConnectThread(device);
+                        connectThread.start();
+                    }
                 }
             }
         }
     }
 
-    // TODO: handle lifecycle onPause, onResume, etc... close and reopen socket?
+    @Override
+    protected void onPause() {
+        super.onPause();
+        Log.d(BT_DEBUG_TAG, "onPause");
+        // Close connection here
+        connectThread.cancel();
+    }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
@@ -111,6 +126,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 // Connect to the remote device through the socket. This call blocks
                 // until it succeeds or throws an exception.
+                Thread.sleep(200);
                 mmSocket.connect();
             } catch (IOException connectException) {
                 // Unable to connect; close the socket and return.
@@ -121,11 +137,13 @@ public class MainActivity extends AppCompatActivity {
                     Log.e(BT_DEBUG_TAG, "Could not close the client socket", closeException);
                 }
                 return;
+            } catch (InterruptedException interruptedException) {
+                Log.e(BT_DEBUG_TAG, "Sleep interrupted", interruptedException);
             }
 
             // The connection attempt succeeded. Perform work associated with
             // the connection in a separate thread.
-            Log.d(BT_DEBUG_TAG, "Connection successful");
+            Log.d(BT_DEBUG_TAG, "Connection to " + mmDevice.getName() + " successful");
             connectedThread = new ConnectedThread(mmSocket);
             connectedThread.start();
         }
@@ -133,6 +151,7 @@ public class MainActivity extends AppCompatActivity {
         // Closes the client socket and causes the thread to finish.
         public void cancel() {
             try {
+                connectedThread.cancel();
                 mmSocket.close();
             } catch (IOException e) {
                 Log.e(BT_DEBUG_TAG, "Could not close the client socket", e);
@@ -223,6 +242,8 @@ public class MainActivity extends AppCompatActivity {
         // Call this method from the main activity to shut down the connection.
         public void cancel() {
             try {
+                mmInStream.close();
+                mmOutStream.close();
                 mmSocket.close();
             } catch (IOException e) {
                 Log.e(BT_DEBUG_TAG, "Could not close the connect socket", e);
