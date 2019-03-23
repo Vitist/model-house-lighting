@@ -93,6 +93,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // TODO: create switches instead and write LED id as positive to turn on or negative to turn off
     public void onOnButtonClick(View view) {
         connectedThread.write(ON.getBytes());
     }
